@@ -288,6 +288,10 @@ namespace Services {
                     if (source.isFollower && !Hooks::IsFollowerSafeFormType(item->GetFormType(), config.isCookingStation)) {
                         continue;
                     }
+                    // Never use enchanted/tempered/renamed equipment from containers
+                    if (!container->IsPlayerRef() && Hooks::IsProtectedEquipment(item, data.second.get())) {
+                        continue;
+                    }
                     result.inventoryCache[item] += data.first;
 
                     // Per-source item breakdown for debugging
@@ -435,6 +439,10 @@ namespace Services {
                     }
                     // Apply follower safety filter
                     if (source.isFollower && !Hooks::IsFollowerSafeFormType(item->GetFormType(), isCookingStation)) {
+                        continue;
+                    }
+                    // Never use enchanted/tempered/renamed equipment from containers
+                    if (!container->IsPlayerRef() && Hooks::IsProtectedEquipment(item, data.second.get())) {
                         continue;
                     }
                     outCache[item] += data.first;

@@ -547,13 +547,24 @@ namespace Hooks::InventoryHooks {
                 if (!container) continue;
 
                 // Check how many of this item the container has
-                auto countsMap = container->GetInventoryCounts();
-                auto it = countsMap.find(a_item);
-                if (it == countsMap.end() || it->second <= 0) {
-                    continue;
+                std::int32_t available = 0;
+                if (!container->IsPlayerRef() &&
+                    (a_item->GetFormType() == RE::FormType::Weapon || a_item->GetFormType() == RE::FormType::Armor)) {
+                    // Equipment: skip containers holding enchanted/tempered/renamed copies
+                    auto inv = container->GetInventory([a_item](RE::TESBoundObject& a_obj) { return &a_obj == a_item; });
+                    auto it = inv.find(a_item);
+                    if (it == inv.end() || it->second.first <= 0 || IsProtectedEquipment(a_item, it->second.second.get())) {
+                        continue;
+                    }
+                    available = it->second.first;
+                } else {
+                    auto countsMap = container->GetInventoryCounts();
+                    auto it = countsMap.find(a_item);
+                    if (it == countsMap.end() || it->second <= 0) {
+                        continue;
+                    }
+                    available = it->second;
                 }
-
-                std::int32_t available = it->second;
                 std::int32_t toRemove = std::min(remaining, available);
 
                 if (toRemove > 0) {

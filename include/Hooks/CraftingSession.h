@@ -28,6 +28,30 @@ namespace Hooks {
         }
     }
 
+    /// True if a weapon/armor stack in a (non-player) container must not be used
+    /// for crafting: some instance of it is player-enchanted, tempered, renamed,
+    /// poisoned or a quest item. Such items are never counted or consumed from
+    /// containers, so breakdown/smelting recipes can't destroy them by accident.
+    /// (Conservative: if any copy in that container is special, none of that
+    /// item type is taken from that container.)
+    inline bool IsProtectedEquipment(RE::TESBoundObject* a_item, const RE::InventoryEntryData* a_entry) {
+        if (!a_item || !a_entry) return false;
+        const auto type = a_item->GetFormType();
+        if (type != RE::FormType::Weapon && type != RE::FormType::Armor) return false;
+        if (!a_entry->extraLists) return false;
+        for (auto* xList : *a_entry->extraLists) {
+            if (!xList) continue;
+            if (xList->HasType(RE::ExtraDataType::kEnchantment) ||
+                xList->HasType(RE::ExtraDataType::kHealth) ||
+                xList->HasType(RE::ExtraDataType::kTextDisplayData) ||
+                xList->HasType(RE::ExtraDataType::kPoison) ||
+                xList->HasType(RE::ExtraDataType::kAliasInstanceArray)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// Session state for zero-transfer crafting (reset on menu open)
     struct CraftingSession {
         RE::ObjectRefHandle furniture;   // Current crafting station
@@ -104,6 +128,10 @@ namespace Hooks {
                         }
                         // Apply follower safety filter
                         if (source.isFollower && !IsFollowerSafeFormType(item->GetFormType(), isCookingStation)) {
+                            continue;
+                        }
+                        // Never use enchanted/tempered/renamed equipment from containers
+                        if (!container->IsPlayerRef() && IsProtectedEquipment(item, data.second.get())) {
                             continue;
                         }
                         inventoryCache[item] += data.first;
