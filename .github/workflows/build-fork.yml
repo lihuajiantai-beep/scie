@@ -23,19 +23,45 @@ jobs:
           git clone https://github.com/microsoft/vcpkg.git
           ./vcpkg/bootstrap-vcpkg.bat
 
+      - name: Set up MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Configure CMake
-        run: cmake --preset release
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake -S . -B build/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md 2>&1 | tee configure.log
         env:
           VCPKG_ROOT: ${{ github.workspace }}/vcpkg
 
       - name: Build DLL
-        run: cmake --build build/release --config Release
+        shell: bash
+        run: |
+          set -o pipefail
+          cmake --build build/release --config Release 2>&1 | tee build.log
+
+      - name: Report errors
+        if: failure()
+        shell: bash
+        run: |
+          for f in configure.log build.log; do
+            [ -f "$f" ] || continue
+            grep -iE "error|fatal|not found|could not" "$f" | grep -v "^--" | head -40 | while IFS= read -r line; do
+              echo "::error::$f: ${line:0:900}"
+            done
+            tail -15 "$f" | while IFS= read -r line; do echo "::warning::$f tail: ${line:0:900}"; done
+          done
 
       - name: Package
         shell: bash
         run: |
           mkdir -p dist/SKSE/Plugins
-          cp build/release/Release/CraftingInventoryExtender.dll dist/SKSE/Plugins/
+          cp "$(find build/release -name CraftingInventoryExtender.dll | head -1)" dist/SKSE/Plugins/
           cd dist && 7z a ../SCIE_GetItemCountFix.zip SKSE
 
       - name: Upload artifact
