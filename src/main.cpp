@@ -263,6 +263,7 @@ namespace {
             auto total = InterlockedExchange(&s_callCount, 0);
             auto overrides = InterlockedExchange(&s_overrideCount, 0);
             logger::info("[COBJ-HOOK] Summary: {} calls, {} overrides", total, overrides);
+            logger::info("[COND-HOOK] Summary: {} GetItemCount conditions raised", Hooks::InventoryHooks::TakeConditionOverrideCount());
         }
 
         bool Install() {
@@ -429,6 +430,8 @@ namespace {
 
                 // Hook 5: COBJ material availability override (eliminates recipe patch ESPs)
                 COBJHook::Install();
+                // Hook 6: GetItemCount recipe conditions see SCIE containers
+                Hooks::InventoryHooks::InstallConditionHooks();
                 break;
             case SKSE::MessagingInterface::kPostLoadGame:
                 logger::info("Game loaded");

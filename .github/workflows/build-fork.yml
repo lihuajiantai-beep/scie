@@ -1,0 +1,57 @@
+# Build the patched DLL (GetItemCount condition fix) on this fork.
+# Runs on every push to main, or manually from the Actions tab.
+name: Build (fork)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    if: github.repository != 'ohfor/scie'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Clone vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          ./vcpkg/bootstrap-vcpkg.bat
+
+      - name: Configure CMake
+        run: cmake --preset release
+        env:
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+
+      - name: Build DLL
+        run: cmake --build build/release --config Release
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist/SKSE/Plugins
+          cp build/release/Release/CraftingInventoryExtender.dll dist/SKSE/Plugins/
+          cd dist && 7z a ../SCIE_GetItemCountFix.zip SKSE
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SCIE_GetItemCountFix
+          path: SCIE_GetItemCountFix.zip
+
+      - name: Publish release (latest build)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: getitemcount-fix
+          name: SCIE + GetItemCount condition fix
+          body: |
+            Unofficial build of SCIE with a hook on the GetItemCount condition function,
+            so recipe conditions (JK Crafting Breakdown, Crafting Recipe Distributor, etc.)
+            also count items in SCIE containers. Built from commit ${{ github.sha }}.
+          files: SCIE_GetItemCountFix.zip
+          make_latest: true

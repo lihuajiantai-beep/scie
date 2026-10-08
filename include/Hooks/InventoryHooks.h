@@ -11,6 +11,13 @@ namespace Hooks {
     /// Uninitialize MinHook (called on plugin unload, if any)
     void Uninstall();
 
+    /// Hook the GetItemCount condition function so recipe conditions see
+    /// items stored in SCIE containers. Call after MinHook is initialized.
+    bool InstallConditionHooks();
+
+    /// Number of GetItemCount condition results raised since last call (for logging)
+    std::uint32_t TakeConditionOverrideCount();
+
     /// Function signatures for the hooked functions
     using GetContainerItemCount_t = std::int32_t(*)(RE::TESObjectREFR*, bool, bool);
     using GetInventoryItemEntryAtIdx_t = RE::InventoryEntryData*(*)(RE::TESObjectREFR*, std::int32_t, bool);

@@ -604,7 +604,117 @@ namespace Hooks::InventoryHooks {
             // Everything handled — return result from last successful removal
             return a_result;
         }
+
+        // ================================================================
+        // Hook 6: GetItemCount condition function (CTDA function 47)
+        //
+        // Recipes from breakdown/smelting mods (JK Crafting Breakdown,
+        // Crafting Recipe Distributor runtime recipes, Alchemy Reworked, ...)
+        // carry a "GetItemCount <item> >= N" condition on the player.
+        // The game evaluates COBJ conditions BEFORE the material check
+        // (Hook 5), and the condition function reads the player's real
+        // inventory, so recipes whose materials sit only in SCIE containers
+        // were filtered out before SCIE could see them.
+        //
+        // Hooked via the script command table (no Address Library ID needed).
+        // During an active crafting session, when the subject is the player,
+        // the result is raised to SCIE's merged count (player + containers,
+        // already respecting the station's form-type filters).
+        // ================================================================
+        using ConditionFunc_t = RE::SCRIPT_FUNCTION::Condition_t;
+        ConditionFunc_t* _originalGetItemCountCondition = nullptr;
+        std::atomic<std::uint32_t> s_conditionOverrides{ 0 };
+
+        bool IsAtCraftingWorkbench()
+        {
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            if (!player) return false;
+            auto handle = player->GetOccupiedFurniture();
+            if (handle.native_handle() == 0) return false;
+            auto ref = handle.get();
+            auto* base = ref ? ref->GetBaseObject() : nullptr;
+            auto* furn = base ? base->As<RE::TESFurniture>() : nullptr;
+            return furn && furn->workBenchData.benchType.get() != RE::TESFurniture::WorkBenchData::BenchType::kNone;
+        }
+
+        std::int32_t MergedCountForParam(void* a_param)
+        {
+            auto* form = static_cast<RE::TESForm*>(a_param);
+            if (!form) {
+                return 0;
+            }
+            if (auto* list = form->As<RE::BGSListForm>()) {
+                std::int32_t sum = 0;
+                list->ForEachForm([&](RE::TESForm& a_form) {
+                    if (auto* bound = a_form.As<RE::TESBoundObject>()) {
+                        sum += g_craftingSession.GetCachedItemCount(bound);
+                    }
+                    return RE::BSContainer::ForEachResult::kContinue;
+                });
+                return sum;
+            }
+            if (auto* bound = form->As<RE::TESBoundObject>()) {
+                return g_craftingSession.GetCachedItemCount(bound);
+            }
+            return 0;
+        }
+
+        bool Hook_GetItemCountCondition(RE::TESObjectREFR* a_thisObj, void* a_param1, void* a_param2, double& a_result)
+        {
+            bool ret = _originalGetItemCountCondition(a_thisObj, a_param1, a_param2, a_result);
+
+            if (!a_thisObj || !a_thisObj->IsPlayerRef() || !a_param1) {
+                return ret;
+            }
+            // Only while the player is using a crafting workbench (not chairs/beds),
+            // so quest/dialogue GetItemCount checks elsewhere are never affected.
+            if (!IsAtCraftingWorkbench()) {
+                return ret;
+            }
+            if (!EnsureSessionActive()) {
+                return ret;
+            }
+            if (g_craftingSession.needsCacheRefresh) {
+                RefreshSessionAfterCraft();
+            }
+
+            const auto merged = static_cast<double>(MergedCountForParam(a_param1));
+            if (merged > a_result) {
+                a_result = merged;
+                ret = true;
+                s_conditionOverrides++;
+            }
+            return ret;
+        }
     }  // anonymous namespace
+
+    bool InstallConditionHooks()
+    {
+        auto* cmd = RE::SCRIPT_FUNCTION::LocateScriptCommand("GetItemCount");
+        if (!cmd || !cmd->conditionFunction) {
+            logger::error("[COND-HOOK] GetItemCount script command not found");
+            return false;
+        }
+        auto* target = reinterpret_cast<void*>(cmd->conditionFunction);
+        auto status = MH_CreateHook(target, reinterpret_cast<void*>(&Hook_GetItemCountCondition),
+            reinterpret_cast<void**>(&_originalGetItemCountCondition));
+        if (status != MH_OK) {
+            logger::error("[COND-HOOK] MH_CreateHook failed: {}", MH_StatusToString(status));
+            return false;
+        }
+        status = MH_EnableHook(target);
+        if (status != MH_OK) {
+            logger::error("[COND-HOOK] MH_EnableHook failed: {}", MH_StatusToString(status));
+            return false;
+        }
+        logger::info("[COND-HOOK] GetItemCount condition hooked at 0x{:X}", reinterpret_cast<std::uintptr_t>(target));
+        return true;
+    }
+
+    std::uint32_t TakeConditionOverrideCount()
+    {
+        return s_conditionOverrides.exchange(0);
+    }
 
     /// Show a user-friendly error message box
     void ShowDependencyError(const char* details) {
